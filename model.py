@@ -145,3 +145,26 @@ class DecoderOnly(nn.Module):
             loss = None
 
         return logits, loss
+
+    @torch.no_grad()
+    def generate(self, tokens, max_new_tokens, temperature=1.0):
+        assert not self.training
+        for _ in range(max_new_tokens):
+            # if the sequence context is growing too long we must crop it at block_size
+            cropped = (
+                tokens
+                if tokens.size(1) <= self.config.block_size
+                else tokens[:, -self.config.block_size :]
+            )
+            # forward the model to get the logits for the index in the sequence
+            logits, _ = self(cropped)
+            # pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = nn.functional.softmax(logits, dim=-1)
+            # sample from the distribution
+            next_token = torch.multinomial(probs, num_samples=1)
+            # append sampled index to the running sequence and continue
+            tokens = torch.cat((tokens, next_token), dim=1)
+
+        return tokens
