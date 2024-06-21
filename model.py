@@ -43,12 +43,13 @@ class CausalSelfAttention(nn.Module):
         return output
 
 
-class Block(nn.module):
+class Block(nn.Module):
     """
     A single transformer block.
     """
 
     def __init__(self, embed_dim, num_heads):
+        super().__init__()
         self.norm1 = nn.LayerNorm(embed_dim)
         self.csa = CausalSelfAttention(embed_dim, num_heads)
         self.norm2 = nn.LayerNorm(embed_dim)
@@ -63,11 +64,11 @@ class Block(nn.module):
 # Defaults match the config for bitstrings
 @dataclass
 class Config:
+    vocab_size: int
     num_layers: int = 6
     num_heads: int = 6
     embed_dim: int = 384
     window_size: int = 16
-    vocab_size: int = 16
 
 
 def init_weights(module):
@@ -87,23 +88,19 @@ class DecoderOnly(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
-        self.modules = nn.ModuleDict(
-            dict(
-                token_embedding=nn.Embedding(config.vocab_size, config.embed_dim),
-                position_embedding=nn.Embedding(config.window_size, config.embed_dim),
-                blocks=nn.ModuleList(
-                    [
-                        Block(config.embed_dim, config.num_heads)
-                        for _ in range(config.num_layers)
-                    ]
-                ),
-                norm=nn.LayerNorm(config.embed_dim),
-                head=nn.Linear(config.embed_dim, config.vocab_size, bias=False),
-            )
+        self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
+        self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
+        self.blocks = nn.ModuleList(
+            [
+                Block(config.embed_dim, config.num_heads)
+                for _ in range(config.num_layers)
+            ]
         )
+        self.norm = nn.LayerNorm(config.embed_dim)
+        self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
 
         # Weight tying
-        self.modules.token_embedding.weight = self.modules.head.weight
+        self.token_embedding.weight = self.head.weight
 
         self.apply(init_weights)
 
@@ -127,12 +124,12 @@ class DecoderOnly(nn.Module):
                 f"Window size is {self.config.window_size}, got {num_tokens} tokens"
             )
         positions = torch.arange(0, num_tokens, dtype=torch.long, device=tokens.device)
-        embedded_tokens = self.modules.token_embedding(tokens)
-        embedded_positions = self.modules.position_embedding(positions)
+        embedded_tokens = self.token_embedding(tokens)
+        embedded_positions = self.position_embedding(positions)
         x = embedded_tokens + embedded_positions
-        for block in self.modules.blocks:
+        for block in self.blocks:
             x = block(x)
-        x = self.modules.norm(x)
+        x = self.norm(x)
 
         if targets is not None:
             # Also calculate the loss
