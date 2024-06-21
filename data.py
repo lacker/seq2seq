@@ -20,8 +20,14 @@ class Encoding:
             print(f"{repr(ch)} -> {self.stoi[ch]}")
         self.vocab_size = len(self.stoi)
 
+        # Split the encoded data into training and validation
+        self.encoded = self.encode(text)
+        cut = int(len(self.encoded) * 0.9)
+        self.train = self.encoded[:cut]
+        self.val = self.encoded[cut:]
+
     def encode(self, s):
-        return np.array([self.stoi[ch] for ch in s], dtype=np.uint8)
+        return np.array([self.stoi[ch] for ch in s], dtype=np.uint16)
 
     def decode(self, ids):
         return "".join([self.itos[i] for i in ids])
@@ -38,12 +44,14 @@ def save_data(data):
         f.write("\n".join(data + []))
 
 
-def generate_data():
+def generate():
+    "Generates data and returns an Encoding for it."
+    random.seed(1337)
     data = [generate_add() for _ in range(100000)]
     save_data(data)
-    return data
+    return Encoding()
 
 
 if __name__ == "__main__":
-    generate_data()
+    generate()
     print("done generating data.")
