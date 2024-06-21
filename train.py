@@ -12,8 +12,9 @@ learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
 max_iters = 100000
 lr_decay_iters = max_iters  # make equal to max_iters usually
-
+weight_decay = 1e-1
 min_lr = 1e-4  # learning_rate / 10 usually
+beta1 = 0.9
 beta2 = 0.99  # make a bit bigger because number of tokens per iter is small
 
 warmup_iters = 100  # not super necessary potentially
@@ -58,3 +59,26 @@ best_val_loss = 1e9
 print("initializing a new model from scratch...")
 model = model.DecoderOnly(config)
 model.to("cuda")
+
+optimizer = model.configure_optimizers(
+    weight_decay, learning_rate, (beta1, beta2), "cuda"
+)
+
+print("compiling the model...")
+model = torch.compile(model)
+
+
+@torch.no_grad()
+def estimate_loss():
+    "Returns a (train_loss, val_loss) tuple."
+    answer = [None, None]
+    model.eval()
+    for i, tokens in enumerate([encoding.train, encoding.val]):
+        losses = torch.zeros(eval_iters)
+        for k in range(eval_iters):
+            inputs, outputs = get_batch(tokens)
+            with context:
+                logits, loss = model(inputs, outputs)
+            losses[k] = loss.item()
+        answer[i] = losses.mean()
+    return tuple(answer)
