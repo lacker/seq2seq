@@ -1,2 +1,4 @@
 data.txt
 checkpoint.pt
+*.pyc
+__pycache__

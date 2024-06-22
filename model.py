@@ -133,13 +133,13 @@ class DecoderOnly(nn.Module):
 
         if targets is not None:
             # Also calculate the loss
-            logits = self.lm_head(x)
+            logits = self.head(x)
             loss = nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
             )
         else:
-            # Only forward the lm_head on the very last position
-            logits = self.lm_head(x[:, [-1], :])
+            # Only forward the head on the very last position
+            logits = self.head(x[:, [-1], :])
             loss = None
 
         return logits, loss

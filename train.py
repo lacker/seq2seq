@@ -43,14 +43,14 @@ def get_batch(tokens):
     start_indices = torch.randint(0, len(tokens) - config.window_size, (batch_size,))
     inputs = torch.stack(
         [
-            torch.from_numpy((data[i : i + config.window_size]).astype(np.int64))
+            torch.from_numpy((tokens[i : i + config.window_size]).astype(np.int64))
             for i in start_indices
         ]
     )
     outputs = torch.stack(
         [
             torch.from_numpy(
-                (data[i + 1 : i + config.window_size + 1]).astype(np.int64)
+                (tokens[i + 1 : i + config.window_size + 1]).astype(np.int64)
             )
             for i in start_indices
         ]
@@ -139,6 +139,7 @@ for step in range(max_iters):
     # Backward pass
     loss.backward()
     torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
+    optimizer.step()
     # Flush gradients to free up memory
     optimizer.zero_grad(set_to_none=True)
 
@@ -149,4 +150,4 @@ for step in range(max_iters):
     if step % log_interval == 0:
         # Note: this is a CPU-GPU sync point.
         batch_loss = loss.item()
-        print(f"{step=} {batch_loss=:.3f} {batch_time=:.3f}s")
+        print(f"{step=} {batch_loss=:.3f}, batch time {batch_time*1e3:.1f}ms")
