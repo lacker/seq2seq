@@ -8,25 +8,54 @@ data_path = os.path.join(os.path.dirname(__file__), "data.txt")
 class Encoding:
     def __init__(self):
         print("creating encoding...")
-        self.stoi = {}
-        self.itos = {}
-        text = open(data_path).read()
+        self.stoi = {".": 0}
+        self.itos = {0: "."}
+        self.lines = [line.strip() for line in open(data_path)]
         chars = set()
-        for ch in text:
-            chars.add(ch)
+        for line in self.lines:
+            for ch in line:
+                assert ch != ".", "data should not contain dots"
+                chars.add(ch)
         for ch in sorted(chars):
             self.stoi[ch] = len(self.stoi)
             self.itos[self.stoi[ch]] = ch
             print(f"{repr(ch)} -> {self.stoi[ch]}")
         self.vocab_size = len(self.stoi)
 
+    def make_data(self, window_size):
+        """
+        Returns ((train_inputs, train_outputs), (val_inputs, val_outputs)) datasets.
+        Inputs have shape (num datapoints, window size).
+        outputs have shape (num datapoints, window size).
+        """
         # Split the encoded data into training and validation
-        self.encoded = self.encode(text)
-        cut = int(len(self.encoded) * 0.9)
-        self.train = self.encoded[:cut]
-        self.val = self.encoded[cut:]
+        cut = int(len(self.lines) * 0.9)
+        train = self.make_windows(self.lines[:cut], window_size)
+        val = self.make_windows(self.lines[cut:], window_size)
+        return train, val
+
+    def make_windows(self, lines, window_size):
+        """
+        Returns (inputs, outputs).
+        Inputs have shape (num datapoints, window size).
+        outputs have shape (num datapoints, window size).
+        """
+        inputs = []
+        outputs = []
+        for line in lines:
+            question, answer = line.split("=")
+            # We need enough left-padding to make a window whose last character is the =
+            left_pad_size = window_size - len(question) - 1
+            assert left_pad_size >= 0
+            padded = ("." * left_pad_size) + line + "."
+            encoded_padded = self.encode(padded)
+            for i in range(len(encoded_padded) - window_size):
+                inputs.append(encoded_padded[i : i + window_size])
+                outputs.append(encoded_padded[i + 1 : i + window_size + 1])
+        return np.array(inputs, dtype=np.uint16), np.array(outputs, dtype=np.uint16)
 
     def encode(self, s):
+        "Return a one-dimensional array."
         return np.array([self.stoi[ch] for ch in s], dtype=np.uint16)
 
     def decode(self, ids):

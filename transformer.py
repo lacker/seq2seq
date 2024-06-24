@@ -169,7 +169,7 @@ class DecoderOnly(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, tokens, max_new_tokens, temperature=1.0):
+    def generate(self, tokens, max_new_tokens=20, temperature=1.0):
         assert not self.training
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
@@ -188,6 +188,8 @@ class DecoderOnly(nn.Module):
             next_token = torch.multinomial(probs, num_samples=1)
             # append sampled index to the running sequence and continue
             tokens = torch.cat((tokens, next_token), dim=1)
+            if next_token == 0:
+                break
 
         return tokens
 

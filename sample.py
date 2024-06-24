@@ -4,7 +4,8 @@ import torch
 import transformer
 
 checkpoint = torch.load(transformer.checkpoint_path, map_location="cuda")
-model = transformer.DecoderOnly(checkpoint["config"])
+config = checkpoint["config"]
+model = transformer.DecoderOnly(config)
 state_dict = checkpoint["model"]
 
 # I think this is because we're saving a model using DDP and we want to load it without DDP.
@@ -30,15 +31,17 @@ with torch.no_grad():
             print("question:", question)
             print("right answer:", right_answer)
             start = question + "="
+            while len(start) < config.window_size:
+                start = "." + start
             start_ids = encoding.encode(start)
             x = torch.tensor(start_ids, dtype=torch.long, device="cuda")[None, ...]
-            y = model.generate(x, 16)
+            y = model.generate(x)
             y_str = encoding.decode(y[0].tolist())
             model_answer = f"malformed answer: {repr(y_str)}"
             if "=" in y_str:
                 post_eq = y_str.split("=", 1)[1]
-                if "\n" in post_eq:
-                    model_answer = post_eq.split("\n", 1)[0]
+                if "." in post_eq:
+                    model_answer = post_eq.split(".", 1)[0]
             print("model answer:", model_answer)
             if model_answer == right_answer:
                 score += 1

@@ -7,40 +7,32 @@ import transformer
 
 
 # Essentially a data loader
-def get_batch(config, tokens):
-    start_indices = torch.randint(0, len(tokens) - config.window_size, (batch_size,))
-    inputs = torch.stack(
-        [
-            torch.from_numpy((tokens[i : i + config.window_size]).astype(np.int64))
-            for i in start_indices
-        ]
-    )
-    outputs = torch.stack(
-        [
-            torch.from_numpy(
-                (tokens[i + 1 : i + config.window_size + 1]).astype(np.int64)
-            )
-            for i in start_indices
-        ]
-    )
+def get_batch(inputs, outputs, batch_size):
+    assert len(inputs) == len(outputs)
+    indices = np.random.randint(0, len(inputs), (batch_size,))
+    inputs = torch.from_numpy(inputs[indices].astype(np.int64))
+    outputs = torch.from_numpy(outputs[indices].astype(np.int64))
     inputs = inputs.pin_memory().to("cuda", non_blocking=True)
     outputs = outputs.pin_memory().to("cuda", non_blocking=True)
     return inputs, outputs
 
 
 @torch.no_grad()
-def estimate_loss(config):
+def estimate_loss(train_inputs, train_outputs, val_inputs, val_outputs):
     "Returns a (train_loss, val_loss) tuple."
     answer = [None, None]
     model.eval()
-    for i, tokens in enumerate([encoding.train, encoding.val]):
+    for i, (all_inputs, all_outputs) in enumerate(
+        [(train_inputs, train_outputs), (val_inputs, val_outputs)]
+    ):
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            inputs, outputs = get_batch(config, tokens)
+            inputs, outputs = get_batch(all_inputs, all_outputs, batch_size)
             with context:
                 logits, loss = model(inputs, outputs)
             losses[k] = loss.item()
         answer[i] = losses.mean()
+    model.train()
     return tuple(answer)
 
 
@@ -78,6 +70,9 @@ if __name__ == "__main__":
 
     encoding = data.generate()
     config = transformer.Config(vocab_size=encoding.vocab_size)
+    (train_inputs, train_outputs), (val_inputs, val_outputs) = encoding.make_data(
+        config.window_size
+    )
     tokens_per_iter = batch_size * config.window_size
     print(f"tokens per iteration will be: {tokens_per_iter:,}")
     torch.manual_seed(1337)
@@ -99,7 +94,7 @@ if __name__ == "__main__":
 
     # The training loop.
     # Start by fetching the very first batch.
-    x, y = get_batch(config, encoding.train)
+    x, y = get_batch(train_inputs, train_outputs, batch_size)
     current_time = time.time()
     for step in range(max_iters):
         # Determine the learning rate for this iteration
@@ -108,8 +103,10 @@ if __name__ == "__main__":
             group["lr"] = lr
 
         # Evaluate the loss
-        if step % eval_interval == 0:
-            train_loss, val_loss = estimate_loss(config)
+        if step > 0 and step % eval_interval == 0:
+            train_loss, val_loss = estimate_loss(
+                train_inputs, train_outputs, val_inputs, val_outputs
+            )
             print(f"{step=} {train_loss=:.3f} {val_loss=:.3f}")
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
@@ -127,7 +124,7 @@ if __name__ == "__main__":
         with context:
             logits, loss = model(x, y)
         # Should async prefetch
-        x, y = get_batch(config, encoding.train)
+        x, y = get_batch(train_inputs, train_outputs, batch_size)
         # Backward pass
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)
