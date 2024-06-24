@@ -10,6 +10,16 @@ torch.backends.cudnn.allow_tf32 = True
 checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoint.pt")
 
 
+# Defaults match the config for bitstrings
+@dataclass
+class Config:
+    vocab_size: int
+    num_layers: int = 6
+    num_heads: int = 6
+    embed_dim: int = 384
+    window_size: int = 16
+
+
 class MLP(nn.Module):
     """
     Multi-layer perceptron. Has the same size for both input and output.
@@ -30,22 +40,74 @@ class MLP(nn.Module):
 
 
 class CausalSelfAttention(nn.Module):
-    """
-    Just MultiheadAttention, adding a causal mask.
-    """
+    "From nanoGPT."
 
-    def __init__(self, embed_dim, num_heads):
+    def __init__(self, config):
         super().__init__()
-        self.embed_dim = embed_dim
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, bias=False)
+        assert config.embed_dim % config.num_heads == 0
+        # key, query, value projections for all heads, but in a batch
+        self.c_attn = nn.Linear(config.embed_dim, 3 * config.embed_dim, bias=False)
+        # output projection
+        self.c_proj = nn.Linear(config.embed_dim, config.embed_dim, bias=False)
+        # regularization
+        self.num_heads = config.num_heads
+        self.embed_dim = config.embed_dim
+        # flash attention make GPU go brrrrr but support is only in PyTorch >= 2.0
+        self.flash = hasattr(torch.nn.functional, "scaled_dot_product_attention")
+        if not self.flash:
+            print(
+                "WARNING: using slow attention. Flash Attention requires PyTorch >= 2.0"
+            )
+            # causal mask to ensure that attention is only applied to the left in the input sequence
+            self.register_buffer(
+                "bias",
+                torch.tril(torch.ones(config.block_size, config.block_size)).view(
+                    1, 1, config.block_size, config.block_size
+                ),
+            )
 
     def forward(self, x):
-        seq_len, _batch_size, embed_dim = x.size()
-        assert embed_dim == self.embed_dim
-        # Create the causal mask (upper triangular with ones above the diagonal)
-        mask = torch.triu(torch.ones(seq_len, seq_len), diagonal=1).bool().to(x.device)
-        output, _ = self.attention(x, x, x, attn_mask=mask)
-        return output
+        B, T, C = (
+            x.size()
+        )  # batch size, sequence length, embedding dimensionality (embed_dim)
+
+        # calculate query, key, values for all heads in batch and move head forward to be the batch dim
+        q, k, v = self.c_attn(x).split(self.embed_dim, dim=2)
+        k = k.view(B, T, self.num_heads, C // self.num_heads).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        q = q.view(B, T, self.num_heads, C // self.num_heads).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+        v = v.view(B, T, self.num_heads, C // self.num_heads).transpose(
+            1, 2
+        )  # (B, nh, T, hs)
+
+        # causal self-attention; Self-attend: (B, nh, T, hs) x (B, nh, hs, T) -> (B, nh, T, T)
+        if self.flash:
+            # efficient attention using Flash Attention CUDA kernels
+            y = torch.nn.functional.scaled_dot_product_attention(
+                q,
+                k,
+                v,
+                attn_mask=None,
+                dropout_p=False,
+                is_causal=True,
+            )
+        else:
+            # manual implementation of attention
+            att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1)))
+            att = att.masked_fill(self.bias[:, :, :T, :T] == 0, float("-inf"))
+            att = nn.functional.softmax(att, dim=-1)
+            att = self.attn_dropout(att)
+            y = att @ v  # (B, nh, T, T) x (B, nh, T, hs) -> (B, nh, T, hs)
+        y = (
+            y.transpose(1, 2).contiguous().view(B, T, C)
+        )  # re-assemble all head outputs side by side
+
+        # output projection
+        y = self.c_proj(y)
+        return y
 
 
 class Block(nn.Module):
@@ -53,27 +115,17 @@ class Block(nn.Module):
     A single transformer block.
     """
 
-    def __init__(self, embed_dim, num_heads):
+    def __init__(self, config):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim, bias=False)
-        self.csa = CausalSelfAttention(embed_dim, num_heads)
-        self.norm2 = nn.LayerNorm(embed_dim, bias=False)
-        self.mlp = MLP(embed_dim)
+        self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
+        self.csa = CausalSelfAttention(config)
+        self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
+        self.mlp = MLP(config.embed_dim)
 
     def forward(self, x):
         x = x + self.csa(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
-
-
-# Defaults match the config for bitstrings
-@dataclass
-class Config:
-    vocab_size: int
-    num_layers: int = 6
-    num_heads: int = 6
-    embed_dim: int = 384
-    window_size: int = 16
 
 
 def init_weights(module):
@@ -95,12 +147,7 @@ class DecoderOnly(nn.Module):
         self.config = config
         self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
         self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
-        self.blocks = nn.ModuleList(
-            [
-                Block(config.embed_dim, config.num_heads)
-                for _ in range(config.num_layers)
-            ]
-        )
+        self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
         self.norm = nn.LayerNorm(config.embed_dim, bias=False)
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
 

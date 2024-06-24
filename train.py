@@ -12,7 +12,7 @@ log_interval = 10
 batch_size = 128
 base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-max_iters = 5000
+max_iters = 50000
 lr_decay_iters = max_iters  # make equal to max_iters usually
 weight_decay = 1e-1
 min_lr = 1e-4  # learning_rate / 10 usually
