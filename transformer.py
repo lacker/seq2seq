@@ -45,9 +45,12 @@ class MLP(nn.Module):
         return x
 
 
-class CausalSelfAttention(nn.Module):
-    def __init__(self, config):
+class SelfAttention(nn.Module):
+    def __init__(self, config, causal=None):
         super().__init__()
+        # causal must be set explicitly
+        assert causal is not None
+        self.causal = causal
         assert config.embed_dim % config.num_heads == 0
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.embed_dim, 3 * config.embed_dim, bias=False)
@@ -83,7 +86,7 @@ class CausalSelfAttention(nn.Module):
             v,
             attn_mask=None,
             dropout_p=False,
-            is_causal=True,
+            is_causal=self.causal,
         )
 
         # re-assemble all head outputs side by side
@@ -102,7 +105,7 @@ class Block(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.csa = CausalSelfAttention(config)
+        self.csa = SelfAttention(config, causal=True)
         self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
         self.mlp = MLP(config)
 
