@@ -19,6 +19,10 @@ class Config:
     embed_dim: int = 384
     window_size: int = 16
 
+    def scale_init(self):
+        "Shrinks init for c_proj layers in the model."
+        return math.sqrt(2 * self.num_layers)
+
 
 class MLP(nn.Module):
     """
@@ -26,11 +30,13 @@ class MLP(nn.Module):
     No dropout but maybe we could stick some at the end.
     """
 
-    def __init__(self, size):
+    def __init__(self, config):
         super().__init__()
-        self.c_fc = nn.Linear(size, 4 * size, bias=False)
+        self.c_fc = nn.Linear(config.embed_dim, 4 * config.embed_dim, bias=False)
+        nn.init.normal_(self.c_fc.weight, mean=0.0, std=0.02)
         self.gelu = nn.GELU()
-        self.c_proj = nn.Linear(4 * size, size, bias=False)
+        self.c_proj = nn.Linear(4 * config.embed_dim, config.embed_dim, bias=False)
+        nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -45,8 +51,10 @@ class CausalSelfAttention(nn.Module):
         assert config.embed_dim % config.num_heads == 0
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.embed_dim, 3 * config.embed_dim, bias=False)
+        nn.init.normal_(self.c_attn.weight, mean=0.0, std=0.02)
         # output projection
         self.c_proj = nn.Linear(config.embed_dim, config.embed_dim, bias=False)
+        nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
         # regularization
         self.num_heads = config.num_heads
         self.embed_dim = config.embed_dim
@@ -96,21 +104,12 @@ class Block(nn.Module):
         self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
         self.csa = CausalSelfAttention(config)
         self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.mlp = MLP(config.embed_dim)
+        self.mlp = MLP(config)
 
     def forward(self, x):
         x = x + self.csa(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
-
-
-def init_weights(module):
-    if isinstance(module, nn.Linear):
-        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        if module.bias is not None:
-            torch.nn.init.zeros_(module.bias)
-    elif isinstance(module, nn.Embedding):
-        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
 
 class DecoderOnly(nn.Module):
@@ -122,22 +121,16 @@ class DecoderOnly(nn.Module):
         super().__init__()
         self.config = config
         self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
+        nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
+        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
         self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
         self.norm = nn.LayerNorm(config.embed_dim, bias=False)
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
+        nn.init.normal_(self.head.weight, mean=0.0, std=0.02)
 
         # Weight tying
         self.token_embedding.weight = self.head.weight
-
-        self.apply(init_weights)
-
-        # "special scaled init" as per nanogpt / gpt2.
-        for pn, p in self.named_parameters():
-            if pn.endswith("c_proj.weight"):
-                nn.init.normal_(
-                    p, mean=0.0, std=0.02 / math.sqrt(2 * config.num_layers)
-                )
 
         print("number of parameters: %.2fM" % (self.get_num_params() / 1e6))
 
