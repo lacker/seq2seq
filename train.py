@@ -1,10 +1,9 @@
 import data
 import math
-import model
 import numpy as np
-import os
 import time
 import torch
+import transformer
 
 
 eval_interval = 250
@@ -13,7 +12,7 @@ log_interval = 10
 batch_size = 128
 base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-max_iters = 100000
+max_iters = 5000
 lr_decay_iters = max_iters  # make equal to max_iters usually
 weight_decay = 1e-1
 min_lr = 1e-4  # learning_rate / 10 usually
@@ -24,18 +23,14 @@ grad_clip = 1.0
 warmup_iters = 100  # not super necessary potentially
 
 encoding = data.generate()
-config = model.Config(vocab_size=encoding.vocab_size)
+config = transformer.Config(vocab_size=encoding.vocab_size)
 tokens_per_iter = batch_size * config.window_size
 print(f"tokens per iteration will be: {tokens_per_iter:,}")
 torch.manual_seed(1337)
 assert torch.cuda.is_bf16_supported()
 dtype = torch.bfloat16
-torch.backends.cuda.matmul.allow_tf32 = True
-torch.backends.cudnn.allow_tf32 = True
 ptdtype = torch.bfloat16
 context = torch.amp.autocast(device_type="cuda", dtype=dtype)
-
-checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoint.pt")
 
 
 # Essentially a data loader
@@ -63,7 +58,7 @@ def get_batch(tokens):
 iterations = 0
 best_val_loss = 1e9
 print("initializing a new model from scratch...")
-model = model.DecoderOnly(config)
+model = transformer.DecoderOnly(config)
 model.to("cuda")
 
 optimizer = model.configure_optimizers(
@@ -129,7 +124,7 @@ for step in range(max_iters):
                 "best_val_loss": best_val_loss,
                 "config": config,
             }
-            torch.save(checkpoint, checkpoint_path)
+            torch.save(checkpoint, transformer.checkpoint_path)
 
     # Forward pass
     with context:

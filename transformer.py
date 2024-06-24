@@ -1,8 +1,13 @@
 from dataclasses import dataclass
 import inspect
 import math
+import os
 import torch
 import torch.nn as nn
+
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoint.pt")
 
 
 class MLP(nn.Module):
