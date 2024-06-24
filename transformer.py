@@ -186,11 +186,10 @@ class DecoderOnly(nn.Module):
         nodecay_params = []
         for name, param in sorted(param_dict.items()):
             if param.dim() < 2:
-                print("nodecay:", name)
                 nodecay_params.append(param)
             else:
-                print("decay:", name)
                 decay_params.append(param)
+            print(f"{name}: {tuple(param.shape)}")
         optim_groups = [
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": nodecay_params, "weight_decay": 0.0},
