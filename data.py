@@ -44,10 +44,15 @@ def save_data(data):
         f.write("\n".join(data + []))
 
 
+# Change this to change what everything does
+def generate_one():
+    return generate_add()
+
+
 def generate():
     "Generates data and returns an Encoding for it."
     random.seed(1337)
-    data = [generate_add() for _ in range(100000)]
+    data = [generate_one() for _ in range(100000)]
     save_data(data)
     return Encoding()
 

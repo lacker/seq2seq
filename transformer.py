@@ -90,7 +90,7 @@ class DecoderOnly(nn.Module):
     Decoder-only transformer, including embedding layers.
     """
 
-    def __init__(self, config):
+    def __init__(self, config: Config):
         super().__init__()
         self.config = config
         self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
@@ -156,8 +156,8 @@ class DecoderOnly(nn.Module):
             # if the sequence context is growing too long we must crop it at block_size
             cropped = (
                 tokens
-                if tokens.size(1) <= self.config.block_size
-                else tokens[:, -self.config.block_size :]
+                if tokens.size(1) <= self.config.window_size
+                else tokens[:, -self.config.window_size :]
             )
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(cropped)

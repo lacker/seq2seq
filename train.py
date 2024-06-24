@@ -28,9 +28,7 @@ tokens_per_iter = batch_size * config.window_size
 print(f"tokens per iteration will be: {tokens_per_iter:,}")
 torch.manual_seed(1337)
 assert torch.cuda.is_bf16_supported()
-dtype = torch.bfloat16
-ptdtype = torch.bfloat16
-context = torch.amp.autocast(device_type="cuda", dtype=dtype)
+context = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
 
 
 # Essentially a data loader
