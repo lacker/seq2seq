@@ -39,6 +39,12 @@ def generate_add():
     return f"{lhs}+{rhs}={lhs+rhs}"
 
 
+def generate_rev():
+    n = str(random.randrange(1000000))
+    rev_n = n[::-1]
+    return f"R{n}={rev_n}"
+
+
 def save_data(data):
     with open(data_path, "w") as f:
         f.write("\n".join(data + []))
