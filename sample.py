@@ -7,7 +7,7 @@ checkpoint = torch.load(transformer.checkpoint_path, map_location="cuda")
 model = transformer.DecoderOnly(checkpoint["config"])
 state_dict = checkpoint["model"]
 
-# TODO: what is this?
+# I think this is because we're saving a model using DDP and we want to load it without DDP.
 unwanted_prefix = "_orig_mod."
 for k, v in list(state_dict.items()):
     if k.startswith(unwanted_prefix):

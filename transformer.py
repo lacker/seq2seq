@@ -18,14 +18,14 @@ class MLP(nn.Module):
 
     def __init__(self, size):
         super().__init__()
-        self.expansion = nn.Linear(size, 4 * size)
+        self.c_fc = nn.Linear(size, 4 * size, bias=False)
         self.gelu = nn.GELU()
-        self.projection = nn.Linear(4 * size, size)
+        self.c_proj = nn.Linear(4 * size, size, bias=False)
 
     def forward(self, x):
-        x = self.expansion(x)
+        x = self.c_fc(x)
         x = self.gelu(x)
-        x = self.projection(x)
+        x = self.c_proj(x)
         return x
 
 
@@ -37,7 +37,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, embed_dim, num_heads):
         super().__init__()
         self.embed_dim = embed_dim
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, bias=False)
 
     def forward(self, x):
         seq_len, _batch_size, embed_dim = x.size()
@@ -55,9 +55,9 @@ class Block(nn.Module):
 
     def __init__(self, embed_dim, num_heads):
         super().__init__()
-        self.norm1 = nn.LayerNorm(embed_dim)
+        self.norm1 = nn.LayerNorm(embed_dim, bias=False)
         self.csa = CausalSelfAttention(embed_dim, num_heads)
-        self.norm2 = nn.LayerNorm(embed_dim)
+        self.norm2 = nn.LayerNorm(embed_dim, bias=False)
         self.mlp = MLP(embed_dim)
 
     def forward(self, x):
@@ -101,7 +101,7 @@ class DecoderOnly(nn.Module):
                 for _ in range(config.num_layers)
             ]
         )
-        self.norm = nn.LayerNorm(config.embed_dim)
+        self.norm = nn.LayerNorm(config.embed_dim, bias=False)
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
 
         # Weight tying
@@ -111,7 +111,7 @@ class DecoderOnly(nn.Module):
 
         # "special scaled init" as per nanogpt / gpt2.
         for pn, p in self.named_parameters():
-            if pn.endswith("projection.weight"):
+            if pn.endswith("c_proj.weight"):
                 nn.init.normal_(
                     p, mean=0.0, std=0.02 / math.sqrt(2 * config.num_layers)
                 )
@@ -175,13 +175,22 @@ class DecoderOnly(nn.Module):
     def configure_optimizers(self, weight_decay, learning_rate, betas, device_type):
         "Completely from nanoGPT."
         # start with all of the candidate parameters
-        param_dict = {pn: p for pn, p in self.named_parameters()}
+        param_dict = {name: param for name, param in self.named_parameters()}
         # filter out those that do not require grad
-        param_dict = {pn: p for pn, p in param_dict.items() if p.requires_grad}
+        param_dict = {
+            name: param for name, param in param_dict.items() if param.requires_grad
+        }
         # create optim groups. Any parameters that is 2D will be weight decayed, otherwise no.
         # i.e. all weight tensors in matmuls + embeddings decay, all biases and layernorms don't.
-        decay_params = [p for n, p in param_dict.items() if p.dim() >= 2]
-        nodecay_params = [p for n, p in param_dict.items() if p.dim() < 2]
+        decay_params = []
+        nodecay_params = []
+        for name, param in sorted(param_dict.items()):
+            if param.dim() < 2:
+                print("nodecay:", name)
+                nodecay_params.append(param)
+            else:
+                print("decay:", name)
+                decay_params.append(param)
         optim_groups = [
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": nodecay_params, "weight_decay": 0.0},
