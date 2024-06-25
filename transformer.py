@@ -39,6 +39,10 @@ class MLP(nn.Module):
         nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
 
     def forward(self, x):
+        """
+        Input is (batch_size, embed_dim, ...any).
+        Output is (batch_size, embed_dim, ...any).
+        """
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
@@ -50,34 +54,49 @@ class SelfAttention(nn.Module):
         super().__init__()
         # causal must be set explicitly
         assert causal is not None
+        self.config = config
         self.causal = causal
         assert config.embed_dim % config.num_heads == 0
+        self.dim_per_head = config.embed_dim // config.num_heads
         # key, query, value projections for all heads, but in a batch
         self.c_attn = nn.Linear(config.embed_dim, 3 * config.embed_dim, bias=False)
         nn.init.normal_(self.c_attn.weight, mean=0.0, std=0.02)
         # output projection
         self.c_proj = nn.Linear(config.embed_dim, config.embed_dim, bias=False)
         nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
-        # regularization
-        self.num_heads = config.num_heads
-        self.embed_dim = config.embed_dim
 
     def forward(self, x):
-        B, T, C = (
-            x.size()
-        )  # batch size, sequence length, embedding dimensionality (embed_dim)
+        """
+        Input is (batch_size, window_size, embed_dim).
+        Output is (batch_size, window_size, embed_dim).
+        """
+        batch_size, window_size, embed_dim = x.size()
+        assert window_size == self.config.window_size
+        assert embed_dim == self.config.embed_dim
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
-        q, k, v = self.c_attn(x).split(self.embed_dim, dim=2)
-        k = k.view(B, T, self.num_heads, C // self.num_heads).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        q = q.view(B, T, self.num_heads, C // self.num_heads).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
-        v = v.view(B, T, self.num_heads, C // self.num_heads).transpose(
-            1, 2
-        )  # (B, nh, T, hs)
+        q, k, v = self.c_attn(x).split(embed_dim, dim=2)
+        k = k.view(
+            batch_size,
+            window_size,
+            self.config.num_heads,
+            self.dim_per_head,
+        ).transpose(1, 2)
+        q = q.view(
+            batch_size,
+            window_size,
+            self.config.num_heads,
+            self.dim_per_head,
+        ).transpose(1, 2)
+        v = v.view(
+            batch_size,
+            window_size,
+            self.config.num_heads,
+            self.dim_per_head,
+        ).transpose(1, 2)
+
+        # q, k, v are now all:
+        # (batch_size, num_heads, window_size, dim_per_head)
 
         # Use the Flash Attention CUDA kernels
         y = torch.nn.functional.scaled_dot_product_attention(
@@ -90,7 +109,7 @@ class SelfAttention(nn.Module):
         )
 
         # re-assemble all head outputs side by side
-        y = y.transpose(1, 2).contiguous().view(B, T, C)
+        y = y.transpose(1, 2).contiguous().view(batch_size, window_size, embed_dim)
 
         # output projection
         y = self.c_proj(y)
@@ -110,6 +129,10 @@ class Block(nn.Module):
         self.mlp = MLP(config)
 
     def forward(self, x):
+        """
+        Input is (batch_size, window_size, embed_dim).
+        Output is (batch_size, window_size, embed_dim).
+        """
         x = x + self.csa(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
@@ -141,7 +164,13 @@ class DecoderOnly(nn.Module):
         return sum(p.numel() for p in self.parameters())
 
     def forward(self, tokens, targets=None):
-        "If targets are provided, also calculate the loss."
+        """
+        Input is (batch_size, window_size).
+        Output is (batch_size, num_outputs, vocab_size)
+
+        If targets are provided, we provide an output for each target, and a scalar loss.
+        Otherwise, there's just one output, and loss is None.
+        """
         _, num_tokens = tokens.size()
         if num_tokens > self.config.window_size:
             raise ValueError(
@@ -169,7 +198,10 @@ class DecoderOnly(nn.Module):
         return logits, loss
 
     @torch.no_grad()
-    def generate(self, tokens, max_new_tokens=20, temperature=1.0):
+    def generate(self, tokens, max_new_tokens=20, temperature=1.0, encoding=None):
+        """
+        If encoding is provided, use it to display debug information.
+        """
         assert not self.training
         for _ in range(max_new_tokens):
             # if the sequence context is growing too long we must crop it at block_size
@@ -186,6 +218,13 @@ class DecoderOnly(nn.Module):
             probs = nn.functional.softmax(logits, dim=-1)
             # sample from the distribution
             next_token = torch.multinomial(probs, num_samples=1)
+            if encoding is not None:
+                # Debug
+                print("probabilities:")
+                for token, prob in enumerate(probs[0]):
+                    s = encoding.decode([token])
+                    print(f"{s}: {prob:.3f}")
+                print("chosen token:", encoding.decode(next_token[0].tolist()))
             # append sampled index to the running sequence and continue
             tokens = torch.cat((tokens, next_token), dim=1)
             if next_token == 0:
