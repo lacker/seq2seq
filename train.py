@@ -6,8 +6,12 @@ import torch
 import transformer
 
 
-# Essentially a data loader
 def get_batch(inputs, outputs, batch_size):
+    """
+    Inputs is: (batch_size, window_size)
+    Outputs is: (batch_size, window_size)
+    Returns (inputs, outputs).
+    """
     assert len(inputs) == len(outputs)
     indices = np.random.randint(0, len(inputs), (batch_size,))
     inputs = torch.from_numpy(inputs[indices].astype(np.int64))
@@ -57,7 +61,7 @@ if __name__ == "__main__":
     eval_interval = 250
     eval_iters = 200
     log_interval = 10
-    batch_size = 128
+    batch_size = 256
     base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
     max_iters = 50000

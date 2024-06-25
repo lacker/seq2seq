@@ -63,9 +63,26 @@ class Encoding:
 
 
 def generate_add():
-    lhs = random.randrange(1000)
-    rhs = random.randrange(1000)
-    return f"{lhs}+{rhs}={lhs+rhs}"
+    n = 3
+    left = random.randrange(10**n)
+    left_str = str(left).zfill(n)
+    right = random.randrange(10**n)
+    right_str = str(right).zfill(n)
+    answer = left + right
+    answer_str = str(answer).zfill(n + 1)
+    return f"{left_str}+{right_str}={answer_str}"
+
+
+def generate_mul():
+    m = 2
+    n = 4
+    left = random.randrange(10**m)
+    left_str = str(left).zfill(n)
+    right = random.randrange(10**n)
+    right_str = str(right).zfill(n)
+    answer = left * right
+    answer_str = "".join(str(answer).zfill(m + n))
+    return f"{left_str}*{right_str}={answer_str}"
 
 
 def generate_rev():
@@ -81,7 +98,7 @@ def save_data(data):
 
 # Change this to change what everything does
 def generate_one():
-    return generate_add()
+    return generate_mul()
 
 
 def generate():

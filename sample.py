@@ -35,7 +35,7 @@ with torch.no_grad():
                 start = "." + start
             start_ids = encoding.encode(start)
             x = torch.tensor(start_ids, dtype=torch.long, device="cuda")[None, ...]
-            y = model.generate(x, encoding=None)
+            y = model.generate(x, temperature=0.001, encoding=None)
             y_str = encoding.decode(y[0].tolist())
             model_answer = f"malformed answer: {repr(y_str)}"
             if "=" in y_str:
