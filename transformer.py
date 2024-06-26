@@ -49,9 +49,9 @@ class MLP(nn.Module):
         return x
 
 
-class Attention(nn.Module):
+class SelfAttention(nn.Module):
     """
-    Just the attention mechanism.
+    Just the self-attention mechanism.
     """
 
     def __init__(self, config, causal):
@@ -69,30 +69,32 @@ class Attention(nn.Module):
 
     def forward(self, x):
         """
-        Input is (batch_size, window_size, embed_dim).
-        Output is (batch_size, window_size, embed_dim).
+        Input is (batch_size, num_tokens, embed_dim).
+        Output is (batch_size, num_tokens, embed_dim).
+
+        num_tokens can be anything <= window_size.
         """
-        batch_size, window_size, embed_dim = x.size()
-        assert window_size == self.config.window_size
+        batch_size, num_tokens, embed_dim = x.size()
+        assert num_tokens <= self.config.window_size
         assert embed_dim == self.config.embed_dim
 
         # calculate query, key, values for all heads in batch and move head forward to be the batch dim
         q, k, v = self.c_attn(x).split(embed_dim, dim=2)
         k = k.view(
             batch_size,
-            window_size,
+            num_tokens,
             self.config.num_heads,
             self.dim_per_head,
         ).transpose(1, 2)
         q = q.view(
             batch_size,
-            window_size,
+            num_tokens,
             self.config.num_heads,
             self.dim_per_head,
         ).transpose(1, 2)
         v = v.view(
             batch_size,
-            window_size,
+            num_tokens,
             self.config.num_heads,
             self.dim_per_head,
         ).transpose(1, 2)
@@ -111,23 +113,23 @@ class Attention(nn.Module):
         )
 
         # re-assemble all head outputs side by side
-        y = y.transpose(1, 2).contiguous().view(batch_size, window_size, embed_dim)
+        y = y.transpose(1, 2).contiguous().view(batch_size, num_tokens, embed_dim)
 
         # output projection
         y = self.c_proj(y)
         return y
 
 
-class AttentionLayer(nn.Module):
+class SelfAttentionLayer(nn.Module):
     """
-    A single layer of a transformer that is paying attention to one thing.
+    A single layer of a self-attention transformer.
     Takes a flag of whether to causal mask.
     """
 
     def __init__(self, config, causal):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.csa = Attention(config, causal)
+        self.self_attn = SelfAttention(config, causal)
         self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
         self.mlp = MLP(config)
 
@@ -136,8 +138,32 @@ class AttentionLayer(nn.Module):
         Input is (batch_size, window_size, embed_dim).
         Output is (batch_size, window_size, embed_dim).
         """
-        x = x + self.csa(self.norm1(x))
+        x = x + self.self_attn(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
+        return x
+
+
+class SelfAttentionStack(nn.Module):
+    """
+    A stack of self-attention layers.
+    Takes a flag of whether to causal mask.
+    """
+
+    def __init__(self, config, causal):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [SelfAttentionLayer(config, causal) for _ in range(config.num_layers)]
+        )
+        self.norm = nn.LayerNorm(config.embed_dim, bias=False)
+
+    def forward(self, x):
+        """
+        Input is (batch_size, window_size, embed_dim).
+        Output is (batch_size, window_size, embed_dim).
+        """
+        for layer in self.layers:
+            x = layer(x)
+        x = self.norm(x)
         return x
 
 
@@ -149,12 +175,40 @@ class CrossAttentionLayer(nn.Module):
 
     def __init__(self, config):
         super().__init__()
+        self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
+        self.self_attn = SelfAttention(config, True)
+        self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
+        self.cross_attn = nn.MultiheadAttention(
+            config.embed_dim, config.num_heads, bias=False, batch_first=True
+        )
+        self.norm3 = nn.LayerNorm(config.embed_dim, bias=False)
+        self.mlp = MLP(config)
 
-    def forward(self, x):
+    def forward(self, encoded, x):
         """
-        Input is ?
+        encoded is (batch_size, window_size, embed_dim).
+        x is (batch_size, window_size, embed_dim).
+        output is (batch_size, window_size, embed_dim).
         """
-        raise NotImplementedError
+        x = x + self.self_attn(self.norm1(x))
+        x = x + self.cross_attn(self.norm2(x), encoded, encoded, need_weights=False)[0]
+        x = x + self.mlp(self.norm3(x))
+        return x
+
+
+class CrossAttentionStack(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.layers = nn.ModuleList(
+            [CrossAttentionLayer(config) for _ in range(config.num_layers)]
+        )
+        self.norm = nn.LayerNorm(config.embed_dim, bias=False)
+
+    def forward(self, encoded, x):
+        for layer in self.layers:
+            x = layer(encoded, x)
+        x = self.norm(x)
+        return x
 
 
 class DecoderOnly(nn.Module):
@@ -169,14 +223,10 @@ class DecoderOnly(nn.Module):
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
         nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
-        self.blocks = nn.ModuleList(
-            [AttentionLayer(config, True) for _ in range(config.num_layers)]
-        )
-        self.norm = nn.LayerNorm(config.embed_dim, bias=False)
-        self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
-        nn.init.normal_(self.head.weight, mean=0.0, std=0.02)
+        self.stack = SelfAttentionStack(config, causal=True)
 
         # Weight tying
+        self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
         self.token_embedding.weight = self.head.weight
 
         print("number of parameters: %.2fM" % (self.get_num_params() / 1e6))
@@ -201,9 +251,7 @@ class DecoderOnly(nn.Module):
         embedded_tokens = self.token_embedding(tokens)
         embedded_positions = self.position_embedding(positions)
         x = embedded_tokens + embedded_positions
-        for block in self.blocks:
-            x = block(x)
-        x = self.norm(x)
+        x = self.stack(x)
 
         if targets is not None:
             # Also calculate the loss
@@ -305,3 +353,76 @@ class EncoderDecoder(nn.Module):
     def __init__(self, config: Config):
         super().__init__()
         self.config = config
+        self.token_embed = nn.Embedding(config.vocab_size, config.embed_dim)
+        nn.init.normal_(self.token_embed.weight, mean=0.0, std=0.02)
+        self.in_pos_embed = nn.Embedding(config.window_size, config.embed_dim)
+        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
+        self.out_pos_embed = nn.Embedding(config.window_size, config.embed_dim)
+        nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
+
+        self.encoder = SelfAttentionStack(config, causal=False)
+        self.decoder = CrossAttentionStack(config)
+
+        # Weight tying
+        self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
+        self.token_embed.weight = self.head.weight
+
+    def get_num_params(self):
+        return sum(p.numel() for p in self.parameters())
+
+    def forward(self, input_tokens, output_tokens, targets=None):
+        """
+        Input is (batch_size, window_size).
+        Output is (batch_size, num_outputs, vocab_size)
+
+        If targets are provided, we provide an output for each target, and a scalar loss.
+        Otherwise, there's just one output, and loss is None.
+        """
+        _, num_input_tokens = input_tokens.size()
+        assert num_input_tokens == self.config.window_size
+        input_pos = torch.arange(
+            0, num_input_tokens, dtype=torch.long, device=input_tokens.device
+        )
+        _, num_output_tokens = output_tokens.size()
+        assert num_output_tokens <= self.config.window_size
+        output_pos = torch.arange(
+            0, num_output_tokens, dtype=torch.long, device=output_tokens.device
+        )
+        input_embed = self.token_embed(input_tokens) + self.in_pos_embed(input_pos)
+        encoded = self.encoder(input_embed)
+        output_embed = self.token_embed(output_tokens) + self.out_pos_embed(output_pos)
+        final_layer = self.decoder(encoded, output_embed)
+
+        if targets is not None:
+            # Also calculate the loss
+            logits = self.head(final_layer)
+            loss = nn.functional.cross_entropy(
+                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+            )
+        else:
+            # Only forward the head on the very last position
+            logits = self.head(final_layer[:, [-1], :])
+            loss = None
+
+        return logits, loss
+
+    @torch.no_grad()
+    def generate(self, input_tokens, output_tokens, max_new_tokens=20, temperature=1.0):
+        assert not self.training
+        for _ in range(max_new_tokens):
+            # if the sequence context is growing too long, bail
+            if output_tokens.size(1) > self.config.window_size:
+                break
+            # forward the model to get the logits for the index in the sequence
+            logits, _ = self(input_tokens, output_tokens)
+            # pluck the logits at the final step and scale by desired temperature
+            logits = logits[:, -1, :] / temperature
+            # apply softmax to convert logits to (normalized) probabilities
+            probs = nn.functional.softmax(logits, dim=-1)
+            # sample from the distribution
+            next_token = torch.multinomial(probs, num_samples=1)
+            # append sampled index to the running sequence and continue
+            output_tokens = torch.cat((output_tokens, next_token), dim=1)
+            if next_token == 0:
+                break
+        return output_tokens

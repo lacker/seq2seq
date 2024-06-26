@@ -64,7 +64,7 @@ if __name__ == "__main__":
     batch_size = 256
     base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-    max_iters = 50000
+    max_iters = 30000
     lr_decay_iters = max_iters  # make equal to max_iters usually
     weight_decay = 1e-1
     min_lr = 1e-4  # learning_rate / 10 usually
