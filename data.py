@@ -22,7 +22,7 @@ class Encoding:
             print(f"{repr(ch)} -> {self.stoi[ch]}")
         self.vocab_size = len(self.stoi)
 
-    def make_data(self, window_size):
+    def make_decoder_only_datasets(self, window_size):
         """
         Returns ((train_inputs, train_outputs), (val_inputs, val_outputs)) datasets.
         Inputs have shape (num datapoints, window size).
@@ -30,13 +30,13 @@ class Encoding:
         """
         # Split the encoded data into training and validation
         cut = int(len(self.lines) * 0.9)
-        train = self.make_windows(self.lines[:cut], window_size)
-        val = self.make_windows(self.lines[cut:], window_size)
+        train = self.make_decoder_only_dataset(self.lines[:cut], window_size)
+        val = self.make_decoder_only_dataset(self.lines[cut:], window_size)
         return train, val
 
-    def make_windows(self, lines, window_size):
+    def make_decoder_only_dataset(self, lines, window_size):
         """
-        Returns (inputs, outputs).
+        Returns (inputs, outputs) for decoder-only.
         Inputs have shape (num datapoints, window size).
         outputs have shape (num datapoints, window size).
         """
@@ -53,6 +53,40 @@ class Encoding:
                 inputs.append(encoded_padded[i : i + window_size])
                 outputs.append(encoded_padded[i + 1 : i + window_size + 1])
         return np.array(inputs, dtype=np.uint16), np.array(outputs, dtype=np.uint16)
+
+    def make_ed_datasets(self, window_size):
+        """
+        Returns a tuple of (in, out, target) for both train and val.
+        """
+        # Split the encoded data into training and validation
+        cut = int(len(self.lines) * 0.9)
+        train = self.make_ed_dataset(self.lines[:cut], window_size)
+        val = self.make_ed_dataset(self.lines[cut:], window_size)
+        return train, val
+
+    def make_ed_dataset(self, lines, window_size):
+        """
+        Returns (input tokens, output tokens, targets) for encoder-decoder.
+        All have shape (num datapoints, window size).
+        """
+        inputs = []
+        outputs = []
+        targets = []
+        for line in lines:
+            question, answer = line.split("=")
+            right_pad_size = window_size - len(question)
+            assert right_pad_size >= 0
+            encoded_question = self.encode(question + ("." * right_pad_size))
+
+            # Need to pad the answer one more to account for both outputs and targets
+            right_pad_size = window_size - len(answer) + 1
+            assert right_pad_size >= 1
+            encoded_answer = self.encode(answer + ("." * right_pad_size))
+
+            inputs.append(encoded_question)
+            outputs.append(encoded_answer[:-1])
+            targets.append(encoded_answer[1:])
+        return inputs, outputs, targets
 
     def encode(self, s):
         "Return a one-dimensional array."

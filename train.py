@@ -83,8 +83,8 @@ def main():
 
     encoding = data.generate()
     config = transformer.Config(vocab_size=encoding.vocab_size)
-    (train_inputs, train_outputs), (val_inputs, val_outputs) = encoding.make_data(
-        config.window_size
+    (train_inputs, train_outputs), (val_inputs, val_outputs) = (
+        encoding.make_decoder_only_datasets(config.window_size)
     )
     tokens_per_iter = batch_size * config.window_size
     print(f"tokens per iteration will be: {tokens_per_iter:,}")
