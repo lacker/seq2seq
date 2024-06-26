@@ -328,10 +328,11 @@ class EncoderDecoder(nn.Module):
 
     def forward(self, input_tokens, output_tokens, targets=None):
         """
-        Input is (batch_size, window_size).
-        Output is (batch_size, num_outputs, vocab_size)
+        input_tokens is (batch_size, window_size).
+        output_tokens is (batch_size, num_outputs).
+        final output is (batch_size, num_outputs, vocab_size)
 
-        If targets are provided, we provide an output for each target, and a scalar loss.
+        If targets are provided, we provide a final output for each target, and a scalar loss.
         Otherwise, there's just one output, and loss is None.
         """
         _, num_input_tokens = input_tokens.size()
