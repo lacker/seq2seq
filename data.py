@@ -77,7 +77,7 @@ def generate_mul():
     m = 2
     n = 4
     left = random.randrange(10**m)
-    left_str = str(left).zfill(n)
+    left_str = str(left).zfill(m)
     right = random.randrange(10**n)
     right_str = str(right).zfill(n)
     answer = left * right

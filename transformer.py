@@ -49,11 +49,13 @@ class MLP(nn.Module):
         return x
 
 
-class SelfAttention(nn.Module):
-    def __init__(self, config, causal=None):
+class Attention(nn.Module):
+    """
+    Just the attention mechanism.
+    """
+
+    def __init__(self, config, causal):
         super().__init__()
-        # causal must be set explicitly
-        assert causal is not None
         self.config = config
         self.causal = causal
         assert config.embed_dim % config.num_heads == 0
@@ -116,15 +118,16 @@ class SelfAttention(nn.Module):
         return y
 
 
-class Block(nn.Module):
+class AttentionLayer(nn.Module):
     """
-    A single transformer block.
+    A single layer of a transformer that is paying attention to one thing.
+    Takes a flag of whether to causal mask.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, causal):
         super().__init__()
         self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.csa = SelfAttention(config, causal=True)
+        self.csa = Attention(config, causal)
         self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
         self.mlp = MLP(config)
 
@@ -136,6 +139,22 @@ class Block(nn.Module):
         x = x + self.csa(self.norm1(x))
         x = x + self.mlp(self.norm2(x))
         return x
+
+
+class CrossAttentionLayer(nn.Module):
+    """
+    A layer of the decoder of an encoder-decoder transformer.
+    Combines self attention and cross attention.
+    """
+
+    def __init__(self, config):
+        super().__init__()
+
+    def forward(self, x):
+        """
+        Input is ?
+        """
+        raise NotImplementedError
 
 
 class DecoderOnly(nn.Module):
@@ -150,7 +169,9 @@ class DecoderOnly(nn.Module):
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
         nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
-        self.blocks = nn.ModuleList([Block(config) for _ in range(config.num_layers)])
+        self.blocks = nn.ModuleList(
+            [AttentionLayer(config, True) for _ in range(config.num_layers)]
+        )
         self.norm = nn.LayerNorm(config.embed_dim, bias=False)
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
         nn.init.normal_(self.head.weight, mean=0.0, std=0.02)
@@ -249,7 +270,7 @@ class DecoderOnly(nn.Module):
                 nodecay_params.append(param)
             else:
                 decay_params.append(param)
-            print(f"{name}: {tuple(param.shape)}")
+            # print(f"{name}: {tuple(param.shape)}")
         optim_groups = [
             {"params": decay_params, "weight_decay": weight_decay},
             {"params": nodecay_params, "weight_decay": 0.0},
@@ -274,3 +295,13 @@ class DecoderOnly(nn.Module):
         print(f"using fused AdamW: {use_fused}")
 
         return optimizer
+
+
+class EncoderDecoder(nn.Module):
+    """
+    Encoder-decoder transformer, including embedding layers.
+    """
+
+    def __init__(self, config: Config):
+        super().__init__()
+        self.config = config
