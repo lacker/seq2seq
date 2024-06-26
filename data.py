@@ -79,6 +79,7 @@ class Encoding:
             encoded_question = self.encode(question + ("." * right_pad_size))
 
             # Need to pad the answer one more to account for both outputs and targets
+            answer = "=" + answer
             right_pad_size = window_size - len(answer) + 1
             assert right_pad_size >= 1
             encoded_answer = self.encode(answer + ("." * right_pad_size))
@@ -86,7 +87,10 @@ class Encoding:
             inputs.append(encoded_question)
             outputs.append(encoded_answer[:-1])
             targets.append(encoded_answer[1:])
-        return inputs, outputs, targets
+        np_inputs = np.array(inputs, dtype=np.uint16)
+        np_outputs = np.array(outputs, dtype=np.uint16)
+        np_targets = np.array(targets, dtype=np.uint16)
+        return np_inputs, np_outputs, np_targets
 
     def encode(self, s):
         "Return a one-dimensional array."

@@ -226,7 +226,7 @@ class DecoderOnly(nn.Module):
 
         # Weight tying
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
-        self.token_embedding.weight = self.head.weight
+        self.head.weight = self.token_embedding.weight
 
         print("number of parameters: %.2fM" % (self.get_num_params() / 1e6))
 
@@ -321,7 +321,7 @@ class EncoderDecoder(nn.Module):
 
         # Weight tying
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)
-        self.token_embed.weight = self.head.weight
+        self.head.weight = self.token_embed.weight
 
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters())
@@ -358,7 +358,7 @@ class EncoderDecoder(nn.Module):
             )
         else:
             # Only forward the head on the very last position
-            logits = self.head(final_layer[:, [-1], :])
+            logits = self.head(final_layer[:, -1, :])
             loss = None
 
         return logits, loss
@@ -373,7 +373,7 @@ class EncoderDecoder(nn.Module):
             # forward the model to get the logits for the index in the sequence
             logits, _ = self(input_tokens, output_tokens)
             # pluck the logits at the final step and scale by desired temperature
-            logits = logits[:, -1, :] / temperature
+            logits = logits / temperature
             # apply softmax to convert logits to (normalized) probabilities
             probs = nn.functional.softmax(logits, dim=-1)
             # sample from the distribution

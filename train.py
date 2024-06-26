@@ -8,9 +8,9 @@ import transformer
 
 def get_batch(inputs, outputs, batch_size):
     """
-    Inputs is: (batch_size, window_size)
-    Outputs is: (batch_size, window_size)
-    Returns (inputs, outputs).
+    The input/output arguments are numpy arrays of dimension (n, window_size).
+    We select batch_size out of these n arguments.
+    Returns (inputs, outputs), torch vectors of dimension (batch_size, window_size)
     """
     assert len(inputs) == len(outputs)
     indices = np.random.randint(0, len(inputs), (batch_size,))
@@ -73,7 +73,7 @@ def main():
     batch_size = 256
     base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-    max_iters = 30000
+    max_iters = 50000
     lr_decay_iters = max_iters  # make equal to max_iters usually
     weight_decay = 1e-1
     min_lr = 1e-4  # learning_rate / 10 usually
