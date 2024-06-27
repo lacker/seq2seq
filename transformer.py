@@ -38,6 +38,7 @@ class MLP(nn.Module):
         self.gelu = nn.GELU()
         self.c_proj = nn.Linear(4 * config.embed_dim, config.embed_dim, bias=False)
         nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
+        self.dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         """
@@ -47,6 +48,7 @@ class MLP(nn.Module):
         x = self.c_fc(x)
         x = self.gelu(x)
         x = self.c_proj(x)
+        x = self.dropout(x)
         return x
 
 
@@ -61,6 +63,7 @@ class SelfAttention(nn.Module):
         assert dropout is not None
         self.config = config
         self.causal = causal
+        self.dropout = dropout
         assert config.embed_dim % config.num_heads == 0
         self.dim_per_head = config.embed_dim // config.num_heads
         # key, query, value projections for all heads, but in a batch
@@ -69,6 +72,7 @@ class SelfAttention(nn.Module):
         # output projection
         self.c_proj = nn.Linear(config.embed_dim, config.embed_dim, bias=False)
         nn.init.normal_(self.c_proj.weight, mean=0.0, std=0.02 / config.scale_init())
+        self.resid_dropout = nn.Dropout(dropout)
 
     def forward(self, x):
         """
@@ -111,7 +115,7 @@ class SelfAttention(nn.Module):
             k,
             v,
             attn_mask=None,
-            dropout_p=False,
+            dropout_p=self.dropout,
             is_causal=self.causal,
         )
 
@@ -120,6 +124,7 @@ class SelfAttention(nn.Module):
 
         # output projection
         y = self.c_proj(y)
+        y = self.resid_dropout(y)
         return y
 
 

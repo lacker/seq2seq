@@ -54,6 +54,7 @@ def main():
     beta2 = 0.99  # make a bit bigger because number of tokens per iter is small
     grad_clip = 1.0
     window_size = 16
+    dropout = 0.1
 
     dataset = data.generate_dataset(window_size)
 
@@ -68,7 +69,7 @@ def main():
 
     best_val_loss = 1e9
     print("initializing a new model from scratch...")
-    model = transformer.DecoderOnly(config, dropout=0.1)
+    model = transformer.DecoderOnly(config, dropout=dropout)
     model.to("cuda")
 
     optimizer = transformer.make_optimizer(
