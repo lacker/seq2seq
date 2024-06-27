@@ -13,10 +13,10 @@ checkpoint_path = os.path.join(os.path.dirname(__file__), "checkpoint.pt")
 @dataclass
 class Config:
     vocab_size: int
+    window_size: int
     num_layers: int = 6
     num_heads: int = 6
     embed_dim: int = 384
-    window_size: int = 16
 
     def scale_init(self):
         "Shrinks init for c_proj layers in the model."
@@ -233,13 +233,16 @@ class DecoderOnly(nn.Module):
     def get_num_params(self):
         return sum(p.numel() for p in self.parameters())
 
-    def forward(self, tokens, targets=None):
+    def forward(self, tokens, targets=None, priority=None):
         """
         Input is (batch_size, window_size).
         Output is (batch_size, num_outputs, vocab_size)
 
         If targets are provided, we provide an output for each target, and a scalar loss.
+        Targets is (batch_size, num_outputs).
         Otherwise, there's just one output, and loss is None.
+
+        If priority is provided, it's a boolean mask of the targets for which ones are important.
         """
         _, num_tokens = tokens.size()
         if num_tokens > self.config.window_size:
@@ -256,8 +259,14 @@ class DecoderOnly(nn.Module):
             # Also calculate the loss
             logits = self.head(x)
             loss = nn.functional.cross_entropy(
-                logits.view(-1, logits.size(-1)), targets.view(-1), ignore_index=-1
+                logits.view(-1, logits.size(-1)),
+                targets.view(-1),
+                ignore_index=-1,
+                reduction="none",
             )
+            loss = loss.view(targets.shape)
+            # TODO: try prioritizing here
+            loss = loss.mean()
         else:
             # Only forward the head on the very last position
             logits = self.head(x[:, [-1], :])

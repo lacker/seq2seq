@@ -1,13 +1,30 @@
+from dataclasses import dataclass
 import numpy as np
 import os
 import random
+import torch
 
 data_path = os.path.join(os.path.dirname(__file__), "data.txt")
 
 
-class Encoding:
-    def __init__(self):
-        print("creating encoding...")
+@dataclass
+class Batch:
+    inputs: torch.Tensor
+    outputs: torch.Tensor
+
+
+@dataclass
+class DataSubset:
+    # A subset is typically "train" or "val".
+    # Both inputs and outputs have shape (num datapoints, window size).
+    inputs: np.ndarray
+    outputs: np.ndarray
+
+
+class Dataset:
+    def __init__(self, window_size, training=False):
+        print("loading dataset...")
+        self.window_size = window_size
         self.stoi = {".": 0}
         self.itos = {0: "."}
         self.lines = [line.strip() for line in open(data_path)]
@@ -22,23 +39,15 @@ class Encoding:
             print(f"{repr(ch)} -> {self.stoi[ch]}")
         self.vocab_size = len(self.stoi)
 
-    def make_decoder_only_datasets(self, window_size):
-        """
-        Returns ((train_inputs, train_outputs), (val_inputs, val_outputs)) datasets.
-        Inputs have shape (num datapoints, window size).
-        outputs have shape (num datapoints, window size).
-        """
-        # Split the encoded data into training and validation
-        cut = int(len(self.lines) * 0.9)
-        train = self.make_decoder_only_dataset(self.lines[:cut], window_size)
-        val = self.make_decoder_only_dataset(self.lines[cut:], window_size)
-        return train, val
+        if training:
+            # Split the encoded data into training and validation
+            cut = int(len(self.lines) * 0.9)
+            self.train = self.make_subset(self.lines[:cut], window_size)
+            self.val = self.make_subset(self.lines[cut:], window_size)
 
-    def make_decoder_only_dataset(self, lines, window_size):
+    def make_subset(self, lines, window_size):
         """
-        Returns (inputs, outputs) for decoder-only.
-        Inputs have shape (num datapoints, window size).
-        outputs have shape (num datapoints, window size).
+        Constructs a DataSubset from the provided lines.
         """
         inputs = []
         outputs = []
@@ -52,45 +61,9 @@ class Encoding:
             for i in range(len(encoded_padded) - window_size):
                 inputs.append(encoded_padded[i : i + window_size])
                 outputs.append(encoded_padded[i + 1 : i + window_size + 1])
-        return np.array(inputs, dtype=np.uint16), np.array(outputs, dtype=np.uint16)
-
-    def make_ed_datasets(self, window_size):
-        """
-        Returns a tuple of (in, out, target) for both train and val.
-        """
-        # Split the encoded data into training and validation
-        cut = int(len(self.lines) * 0.9)
-        train = self.make_ed_dataset(self.lines[:cut], window_size)
-        val = self.make_ed_dataset(self.lines[cut:], window_size)
-        return train, val
-
-    def make_ed_dataset(self, lines, window_size):
-        """
-        Returns (input tokens, output tokens, targets) for encoder-decoder.
-        All have shape (num datapoints, window size).
-        """
-        inputs = []
-        outputs = []
-        targets = []
-        for line in lines:
-            question, answer = line.split("=")
-            right_pad_size = window_size - len(question)
-            assert right_pad_size >= 0
-            encoded_question = self.encode(question + ("." * right_pad_size))
-
-            # Need to pad the answer one more to account for both outputs and targets
-            answer = "=" + answer
-            right_pad_size = window_size - len(answer) + 1
-            assert right_pad_size >= 1
-            encoded_answer = self.encode(answer + ("." * right_pad_size))
-
-            inputs.append(encoded_question)
-            outputs.append(encoded_answer[:-1])
-            targets.append(encoded_answer[1:])
         np_inputs = np.array(inputs, dtype=np.uint16)
         np_outputs = np.array(outputs, dtype=np.uint16)
-        np_targets = np.array(targets, dtype=np.uint16)
-        return np_inputs, np_outputs, np_targets
+        return DataSubset(inputs=np_inputs, outputs=np_outputs)
 
     def encode(self, s):
         "Return a one-dimensional array."
@@ -139,14 +112,14 @@ def generate_one():
     return generate_mul()
 
 
-def generate():
-    "Generates data and returns an Encoding for it."
+def generate_dataset(window_size):
+    "Generates data and returns a Dataset for it."
     random.seed(1337)
     data = [generate_one() for _ in range(100000)]
     save_data(data)
-    return Encoding()
+    return Dataset(window_size, training=True)
 
 
 if __name__ == "__main__":
-    generate()
+    generate_dataset()
     print("done generating data.")

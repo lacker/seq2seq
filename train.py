@@ -80,11 +80,12 @@ def main():
     beta1 = 0.9
     beta2 = 0.99  # make a bit bigger because number of tokens per iter is small
     grad_clip = 1.0
+    window_size = 16
 
-    encoding = data.generate()
-    config = transformer.Config(vocab_size=encoding.vocab_size)
-    (train_inputs, train_outputs), (val_inputs, val_outputs) = (
-        encoding.make_decoder_only_datasets(config.window_size)
+    dataset = data.generate_dataset(window_size)
+
+    config = transformer.Config(
+        vocab_size=dataset.vocab_size, window_size=dataset.window_size
     )
     tokens_per_iter = batch_size * config.window_size
     print(f"tokens per iteration will be: {tokens_per_iter:,}")
@@ -106,7 +107,7 @@ def main():
 
     # The training loop.
     # Start by fetching the very first batch.
-    x, y = get_batch(train_inputs, train_outputs, batch_size)
+    x, y = get_batch(dataset.train.inputs, dataset.train.outputs, batch_size)
     current_time = time.time()
     for step in range(max_iters):
         # Determine the learning rate for this iteration
@@ -121,10 +122,10 @@ def main():
                 context,
                 eval_iters,
                 batch_size,
-                train_inputs,
-                train_outputs,
-                val_inputs,
-                val_outputs,
+                dataset.train.inputs,
+                dataset.train.outputs,
+                dataset.val.inputs,
+                dataset.val.outputs,
             )
             print(f"{step=} {train_loss=:.3f} {val_loss=:.3f}")
             if val_loss < best_val_loss:
@@ -143,7 +144,7 @@ def main():
         with context:
             logits, loss = model(x, y)
         # Should async prefetch
-        x, y = get_batch(train_inputs, train_outputs, batch_size)
+        x, y = get_batch(dataset.train.inputs, dataset.train.outputs, batch_size)
         # Backward pass
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)

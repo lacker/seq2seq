@@ -18,7 +18,7 @@ model.eval()
 model.to("cuda")
 
 context = torch.amp.autocast(device_type="cuda", dtype=torch.bfloat16)
-encoding = data.Encoding()
+encoding = data.Dataset(config.window_size)
 
 score = 0
 num_samples = 100
