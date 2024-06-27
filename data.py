@@ -10,24 +10,36 @@ data_path = os.path.join(os.path.dirname(__file__), "data.txt")
 @dataclass
 class Batch:
     inputs: torch.Tensor
-    outputs: torch.Tensor
+
+    # outputs and priorities can be none if this is for a prediction task.
+    outputs: torch.Tensor = None
+    priorities: torch.Tensor = None
+
+    def monobatch(tokens):
+        "Make a one-input batch containing just this sequence of ids."
+        inputs = torch.tensor(tokens, dtype=torch.long, device="cuda").unsqueeze(0)
+        return Batch(inputs=inputs)
 
 
 @dataclass
 class DataSubset:
     # A subset is typically "train" or "val".
-    # Both inputs and outputs have shape (num datapoints, window size).
+    # Everything has shape (num datapoints, window size).
+    # inputs and outputs are int64. priorities are boolean masks.
     inputs: np.ndarray
     outputs: np.ndarray
+    priorities: np.ndarray
 
     def get_batch(self, batch_size):
         assert len(self.inputs) == len(self.outputs)
         indices = np.random.randint(0, len(self.inputs), (batch_size,))
         inputs = torch.from_numpy(self.inputs[indices].astype(np.int64))
         outputs = torch.from_numpy(self.outputs[indices].astype(np.int64))
+        priorities = torch.from_numpy(self.priorities[indices])
         inputs = inputs.pin_memory().to("cuda", non_blocking=True)
         outputs = outputs.pin_memory().to("cuda", non_blocking=True)
-        return Batch(inputs=inputs, outputs=outputs)
+        priorities = priorities.pin_memory().to("cuda", non_blocking=True)
+        return Batch(inputs=inputs, outputs=outputs, priorities=priorities)
 
 
 class Dataset:
@@ -46,6 +58,7 @@ class Dataset:
             self.stoi[ch] = len(self.stoi)
             self.itos[self.stoi[ch]] = ch
             print(f"{repr(ch)} -> {self.stoi[ch]}")
+        self.equals = self.stoi["="]
         self.vocab_size = len(self.stoi)
 
         if training:
@@ -60,19 +73,26 @@ class Dataset:
         """
         inputs = []
         outputs = []
+        priorities = []
         for line in lines:
             question, answer = line.split("=")
             # We need enough left-padding to make a window whose last character is the =
             left_pad_size = window_size - len(question) - 1
+            low_priority = len(question) + left_pad_size
             assert left_pad_size >= 0
             padded = ("." * left_pad_size) + line + "."
             encoded_padded = self.encode(padded)
+            long_mask = [False] * low_priority + [True] * (len(padded) - low_priority)
             for i in range(len(encoded_padded) - window_size):
                 inputs.append(encoded_padded[i : i + window_size])
                 outputs.append(encoded_padded[i + 1 : i + window_size + 1])
+                priorities.append(long_mask[i : i + window_size])
         np_inputs = np.array(inputs, dtype=np.uint16)
         np_outputs = np.array(outputs, dtype=np.uint16)
-        return DataSubset(inputs=np_inputs, outputs=np_outputs)
+        np_priorities = np.array(priorities, dtype=bool)
+        return DataSubset(
+            inputs=np_inputs, outputs=np_outputs, priorities=np_priorities
+        )
 
     def encode(self, s):
         "Return a one-dimensional array."

@@ -15,7 +15,7 @@ def estimate_loss(model, context, eval_iters, batch_size, train, val):
         for k in range(eval_iters):
             batch = subset.get_batch(batch_size)
             with context:
-                logits, loss = model(batch.inputs, batch.outputs)
+                logits, loss = model(batch)
             losses[k] = loss.item()
         answer[i] = losses.mean()
     model.train()
@@ -46,7 +46,7 @@ def main():
     batch_size = 256
     base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-    max_iters = 100000
+    max_iters = 50000
     lr_decay_iters = max_iters  # make equal to max_iters usually
     weight_decay = 1e-1
     min_lr = 1e-4  # learning_rate / 10 usually
@@ -113,7 +113,7 @@ def main():
 
         # Forward pass
         with context:
-            logits, loss = model(batch.inputs, batch.outputs)
+            logits, loss = model(batch)
         # Should async prefetch
         batch = dataset.train.get_batch(batch_size)
         # Backward pass

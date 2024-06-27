@@ -33,13 +33,14 @@ with torch.no_grad():
             start = question + "="
             while len(start) < config.window_size:
                 start = "." + start
-            start_ids = encoding.encode(start)
-            x = torch.tensor(start_ids, dtype=torch.long, device="cuda")[None, ...]
-            y = model.generate(x, temperature=0.001, encoding=None)
-            y_str = encoding.decode(y[0].tolist())
-            model_answer = f"malformed answer: {repr(y_str)}"
-            if "=" in y_str:
-                post_eq = y_str.split("=", 1)[1]
+            input_tokens = encoding.encode(start)
+            output_tokens = model.generate(
+                input_tokens, temperature=0.001, encoding=None
+            )
+            output_str = encoding.decode(output_tokens)
+            model_answer = f"malformed answer: {repr(output_str)}"
+            if "=" in output_str:
+                post_eq = output_str.split("=", 1)[1]
                 if "." in post_eq:
                     model_answer = post_eq.split(".", 1)[0]
             print("model answer:", model_answer)
