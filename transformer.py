@@ -215,15 +215,19 @@ class DecoderOnly(nn.Module):
         if batch.outputs is not None:
             # Also calculate the loss
             logits = self.head(x)
-            loss = nn.functional.cross_entropy(
+            flat_loss = nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 batch.outputs.view(-1),
                 ignore_index=-1,
                 reduction="none",
             )
-            loss = loss.view(batch.outputs.shape)
-            # TODO: try prioritizing here
-            loss = loss.mean()
+            unweighted_loss = flat_loss.view(batch.outputs.shape)
+
+            weights = torch.where(
+                batch.priorities, torch.tensor(0.8), torch.tensor(0.2)
+            )
+            weighted_loss = unweighted_loss * weights
+            loss = weighted_loss.mean()
         else:
             # Only forward the head on the very last position
             logits = self.head(x[:, [-1], :])
