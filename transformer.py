@@ -30,8 +30,9 @@ class MLP(nn.Module):
     No dropout but maybe we could stick some at the end.
     """
 
-    def __init__(self, config):
+    def __init__(self, config, dropout=None):
         super().__init__()
+        assert dropout is not None
         self.c_fc = nn.Linear(config.embed_dim, 4 * config.embed_dim, bias=False)
         nn.init.normal_(self.c_fc.weight, mean=0.0, std=0.02)
         self.gelu = nn.GELU()
@@ -54,8 +55,10 @@ class SelfAttention(nn.Module):
     Just the self-attention mechanism.
     """
 
-    def __init__(self, config, causal):
+    def __init__(self, config, causal=None, dropout=None):
         super().__init__()
+        assert causal is not None
+        assert dropout is not None
         self.config = config
         self.causal = causal
         assert config.embed_dim % config.num_heads == 0
@@ -126,12 +129,14 @@ class SelfAttentionLayer(nn.Module):
     Takes a flag of whether to causal mask.
     """
 
-    def __init__(self, config, causal):
+    def __init__(self, config, causal=None, dropout=None):
         super().__init__()
+        assert causal is not None
+        assert dropout is not None
         self.norm1 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.self_attn = SelfAttention(config, causal)
+        self.self_attn = SelfAttention(config, causal=causal, dropout=dropout)
         self.norm2 = nn.LayerNorm(config.embed_dim, bias=False)
-        self.mlp = MLP(config)
+        self.mlp = MLP(config, dropout=dropout)
 
     def forward(self, x):
         """
@@ -149,10 +154,15 @@ class SelfAttentionStack(nn.Module):
     Takes a flag of whether to causal mask.
     """
 
-    def __init__(self, config, causal):
+    def __init__(self, config, causal=None, dropout=None):
         super().__init__()
+        assert causal is not None
+        assert dropout is not None
         self.layers = nn.ModuleList(
-            [SelfAttentionLayer(config, causal) for _ in range(config.num_layers)]
+            [
+                SelfAttentionLayer(config, causal=causal, dropout=dropout)
+                for _ in range(config.num_layers)
+            ]
         )
         self.norm = nn.LayerNorm(config.embed_dim, bias=False)
 
@@ -172,14 +182,15 @@ class DecoderOnly(nn.Module):
     Decoder-only transformer, including embedding layers.
     """
 
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, dropout=None):
         super().__init__()
+        assert dropout is not None
         self.config = config
         self.token_embedding = nn.Embedding(config.vocab_size, config.embed_dim)
         nn.init.normal_(self.token_embedding.weight, mean=0.0, std=0.02)
         self.position_embedding = nn.Embedding(config.window_size, config.embed_dim)
         nn.init.normal_(self.position_embedding.weight, mean=0.0, std=0.02)
-        self.stack = SelfAttentionStack(config, causal=True)
+        self.stack = SelfAttentionStack(config, causal=True, dropout=0.0)
 
         # Weight tying
         self.head = nn.Linear(config.embed_dim, config.vocab_size, bias=False)

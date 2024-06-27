@@ -68,7 +68,7 @@ def main():
 
     best_val_loss = 1e9
     print("initializing a new model from scratch...")
-    model = transformer.DecoderOnly(config)
+    model = transformer.DecoderOnly(config, dropout=0.1)
     model.to("cuda")
 
     optimizer = transformer.make_optimizer(

@@ -5,7 +5,7 @@ import transformer
 
 checkpoint = torch.load(transformer.checkpoint_path, map_location="cuda")
 config = checkpoint["config"]
-model = transformer.DecoderOnly(config)
+model = transformer.DecoderOnly(config, dropout=0.0)
 state_dict = checkpoint["model"]
 
 # I think this is because we're saving a model using DDP and we want to load it without DDP.
