@@ -1,48 +1,21 @@
 import data
 import math
-import numpy as np
 import time
 import torch
 import transformer
 
 
-def get_batch(inputs, outputs, batch_size):
-    """
-    The input/output arguments are numpy arrays of dimension (n, window_size).
-    We select batch_size out of these n arguments.
-    Returns (inputs, outputs), torch vectors of dimension (batch_size, window_size)
-    """
-    assert len(inputs) == len(outputs)
-    indices = np.random.randint(0, len(inputs), (batch_size,))
-    inputs = torch.from_numpy(inputs[indices].astype(np.int64))
-    outputs = torch.from_numpy(outputs[indices].astype(np.int64))
-    inputs = inputs.pin_memory().to("cuda", non_blocking=True)
-    outputs = outputs.pin_memory().to("cuda", non_blocking=True)
-    return inputs, outputs
-
-
 @torch.no_grad()
-def estimate_loss(
-    model,
-    context,
-    eval_iters,
-    batch_size,
-    train_inputs,
-    train_outputs,
-    val_inputs,
-    val_outputs,
-):
+def estimate_loss(model, context, eval_iters, batch_size, train, val):
     "Returns a (train_loss, val_loss) tuple."
     answer = [None, None]
     model.eval()
-    for i, (all_inputs, all_outputs) in enumerate(
-        [(train_inputs, train_outputs), (val_inputs, val_outputs)]
-    ):
+    for i, subset in enumerate([train, val]):
         losses = torch.zeros(eval_iters)
         for k in range(eval_iters):
-            inputs, outputs = get_batch(all_inputs, all_outputs, batch_size)
+            batch = subset.get_batch(batch_size)
             with context:
-                logits, loss = model(inputs, outputs)
+                logits, loss = model(batch.inputs, batch.outputs)
             losses[k] = loss.item()
         answer[i] = losses.mean()
     model.train()
@@ -73,7 +46,7 @@ def main():
     batch_size = 256
     base_learning_rate = 1e-3  # with baby networks can afford to go a bit higher
 
-    max_iters = 50000
+    max_iters = 100000
     lr_decay_iters = max_iters  # make equal to max_iters usually
     weight_decay = 1e-1
     min_lr = 1e-4  # learning_rate / 10 usually
@@ -107,7 +80,7 @@ def main():
 
     # The training loop.
     # Start by fetching the very first batch.
-    x, y = get_batch(dataset.train.inputs, dataset.train.outputs, batch_size)
+    batch = dataset.train.get_batch(batch_size)
     current_time = time.time()
     for step in range(max_iters):
         # Determine the learning rate for this iteration
@@ -122,10 +95,8 @@ def main():
                 context,
                 eval_iters,
                 batch_size,
-                dataset.train.inputs,
-                dataset.train.outputs,
-                dataset.val.inputs,
-                dataset.val.outputs,
+                dataset.train,
+                dataset.val,
             )
             print(f"{step=} {train_loss=:.3f} {val_loss=:.3f}")
             if val_loss < best_val_loss:
@@ -142,9 +113,9 @@ def main():
 
         # Forward pass
         with context:
-            logits, loss = model(x, y)
+            logits, loss = model(batch.inputs, batch.outputs)
         # Should async prefetch
-        x, y = get_batch(dataset.train.inputs, dataset.train.outputs, batch_size)
+        batch = dataset.train.get_batch(batch_size)
         # Backward pass
         loss.backward()
         torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip)

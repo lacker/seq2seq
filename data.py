@@ -20,6 +20,15 @@ class DataSubset:
     inputs: np.ndarray
     outputs: np.ndarray
 
+    def get_batch(self, batch_size):
+        assert len(self.inputs) == len(self.outputs)
+        indices = np.random.randint(0, len(self.inputs), (batch_size,))
+        inputs = torch.from_numpy(self.inputs[indices].astype(np.int64))
+        outputs = torch.from_numpy(self.outputs[indices].astype(np.int64))
+        inputs = inputs.pin_memory().to("cuda", non_blocking=True)
+        outputs = outputs.pin_memory().to("cuda", non_blocking=True)
+        return Batch(inputs=inputs, outputs=outputs)
+
 
 class Dataset:
     def __init__(self, window_size, training=False):
