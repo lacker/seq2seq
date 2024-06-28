@@ -17,7 +17,7 @@ class Config:
     window_size: int
     num_layers: int = 6
     num_heads: int = 6
-    embed_dim: int = 384
+    embed_dim: int = 192
 
     def scale_init(self):
         "Shrinks init for c_proj layers in the model."
