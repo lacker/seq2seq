@@ -9,6 +9,7 @@ data_path = os.path.join(os.path.dirname(__file__), "data.txt")
 
 @dataclass
 class Batch:
+    # All the shapes are (batch size, window size).
     inputs: torch.Tensor
 
     # outputs and priorities can be none if this is for a prediction task.
