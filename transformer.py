@@ -212,8 +212,10 @@ class DecoderOnly(nn.Module):
 
         Returns (logits, loss).
 
-        If outputs are provided, we provide logits for each target, and a scalar loss.
-        Otherwise, there's just one output, and loss is None.
+        logits is (batch size, window size, vocab size).
+
+        If outputs are provided in the batch, we use it to calculate a scalar loss.
+        If outputs are not provided, loss is just None.
         """
         _, num_tokens = batch.inputs.size()
         if num_tokens != self.config.window_size:
@@ -228,9 +230,11 @@ class DecoderOnly(nn.Module):
         x = embedded_tokens + embedded_positions
         x = self.stack(x)
 
+        logits = self.head(x)
+        loss = None
+
         if batch.outputs is not None:
-            # Also calculate the loss
-            logits = self.head(x)
+            # Calculate the loss
             flat_loss = nn.functional.cross_entropy(
                 logits.view(-1, logits.size(-1)),
                 batch.outputs.view(-1),
@@ -244,10 +248,6 @@ class DecoderOnly(nn.Module):
             )
             weighted_loss = unweighted_loss * weights
             loss = weighted_loss.mean()
-        else:
-            # Only forward the head on the very last position
-            logits = self.head(x[:, [-1], :])
-            loss = None
 
         return logits, loss
 
